@@ -1,0 +1,120 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Simple Voting DApp</title>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <style>
+    body{font-family:system-ui,Arial;max-width:800px;margin:24px auto;padding:0 12px}
+    .card{border:1px solid #ddd;border-radius:10px;padding:12px;margin:12px 0}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    button{padding:8px 12px;cursor:pointer}
+    input{padding:6px 8px}
+    table{width:100%;border-collapse:collapse} th,td{border-bottom:1px solid #eee;padding:8px;text-align:left}
+  </style>
+</head>
+<body>
+  <h2>🗳️ Simple Voting DApp</h2>
+
+  <div class="card">
+    <div class="row">
+      <button id="connectBtn">Connect MetaMask</button>
+      <div>Account: <b id="acct">—</b></div>
+    </div>
+    <div>Contract: <span id="addr">—</span></div>
+    <div>Status: <span id="status">—</span></div>
+  </div>
+
+  <div class="card">
+    <h3>Candidates</h3>
+    <table>
+      <thead><tr><th></th><th>Name</th><th>Party</th><th>Votes</th></tr></thead>
+      <tbody id="list"></tbody>
+    </table>
+    <div class="row">
+      <button id="voteBtn">Vote</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Admin (owner only)</h3>
+    <div class="row">
+      <input id="newName" placeholder="Name" />
+      <input id="newParty" placeholder="Party" />
+      <button id="addBtn">Add Candidate</button>
+    </div>
+    <div class="row">
+      <input id="start" type="number" placeholder="start (unix seconds)" />
+      <input id="end" type="number" placeholder="end (unix seconds)" />
+      <button id="openBtn">Open/Set Dates</button>
+    </div>
+  </div>
+
+<script>
+  // ======= FILL THESE TWO FROM REMIX =======
+  const CONTRACT_ADDRESS = "PASTE_CONTRACT_ADDRESS_HERE";
+  const ABI = PASTE_ABI_JSON_HERE; // e.g. [{ "inputs":[...], "name":"getCandidate", ... }]
+  // ========================================
+
+  let provider, signer, contract, owner;
+
+  async function connect() {
+    if (!window.ethereum) { alert("Install MetaMask"); return; }
+    provider = new ethers.providers.Web3Provider(window.ethereum);
+    await provider.send("eth_requestAccounts", []);
+    signer = provider.getSigner();
+    const acct = await signer.getAddress();
+    document.getElementById("acct").textContent = acct;
+    contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+    document.getElementById("addr").textContent = CONTRACT_ADDRESS;
+    owner = await contract.owner?.().catch(()=>null);
+    await refresh();
+  }
+
+  async function refresh() {
+    const isOpen = await contract.votingOpen?.().catch(()=>false);
+    document.getElementById("status").textContent = isOpen ? "Voting OPEN" : "Voting CLOSED";
+
+    const list = document.getElementById("list");
+    list.innerHTML = "";
+    const total = Number(await contract.getCountCandidates());
+    for (let i = 1; i <= total; i++) {
+      const [id, name, party, votes] = await contract.getCandidate(i);
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><input type="radio" name="cand" value="${id}"></td>
+        <td>${name}</td><td>${party}</td><td>${votes.toString()}</td>`;
+      list.appendChild(tr);
+    }
+  }
+
+  async function addCandidate() {
+    const name = document.getElementById("newName").value.trim();
+    const party = document.getElementById("newParty").value.trim();
+    if (!name || !party) return alert("Enter name and party");
+    try { const tx = await contract.addCandidate(name, party); await tx.wait(); await refresh(); }
+    catch(e){ alert(e.reason || e.message); }
+  }
+
+  async function vote() {
+    const sel = document.querySelector('input[name="cand"]:checked');
+    if (!sel) return alert("Select a candidate");
+    try { const tx = await contract.vote(Number(sel.value)); await tx.wait(); await refresh(); }
+    catch(e){ alert(e.reason || e.message); }
+  }
+
+  async function setDates() {
+    const s = BigInt(document.getElementById("start").value);
+    const e = BigInt(document.getElementById("end").value);
+    if (!s || !e || e <= s) return alert("Invalid dates");
+    try { const tx = await contract.setDates(s, e); await tx.wait(); await refresh(); }
+    catch(e){ alert(e.reason || e.message); }
+  }
+
+  document.getElementById("connectBtn").onclick = connect;
+  document.getElementById("addBtn").onclick = addCandidate;
+  document.getElementById("voteBtn").onclick = vote;
+  document.getElementById("openBtn").onclick = setDates;
+</script>
+</body>
+</html>
